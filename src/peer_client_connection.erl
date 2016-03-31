@@ -24,7 +24,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {socket,hashinfo}).
+-record(state, {socket, hashinfo, reminder = <<>>}).
 
 %%%===================================================================
 %%% API
@@ -37,8 +37,8 @@
 %% @end
 %%--------------------------------------------------------------------
 
-start_link(IpAddr,Port,HashInfo,PeerId) ->
-  gen_server:start_link(?MODULE, {IpAddr,Port,HashInfo,PeerId}, []).
+start_link(IpAddr, Port, HashInfo, PeerId) ->
+  gen_server:start_link(?MODULE, {IpAddr, Port, HashInfo, PeerId}, []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -58,10 +58,10 @@ start_link(IpAddr,Port,HashInfo,PeerId) ->
 -spec(init(Args :: term()) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init({IpAddr,Port,HashInfo,PeerId}) ->
-  {ok,Socket} = gen_tcp:connect(IpAddr,Port,[{active,once},{mode,binary}],1000),
-  gen_tcp:send(Socket,<<19:8,<<"BitTorrent protocol">>/bitstring,0:64,HashInfo/binary,(list_to_binary(PeerId))/bitstring>>),
-  {ok, #state{socket  = Socket,hashinfo =  HashInfo }}.
+init({IpAddr, Port, HashInfo, PeerId}) ->
+  {ok, Socket} = gen_tcp:connect(IpAddr, Port, [{active, once}, {mode, binary}], 1000),
+  gen_tcp:send(Socket, <<19:8, <<"BitTorrent protocol">>/bitstring, 0:64, HashInfo/binary, (list_to_binary(PeerId))/bitstring>>),
+  {ok, #state{socket = Socket, hashinfo = HashInfo}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -109,9 +109,16 @@ handle_cast(_Request, State) ->
   {noreply, NewState :: #state{}} |
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #state{}}).
+
+
+handle_info({tcp, _, Bin}, State = #state{reminder = Reminder}) ->
+  {ok, Msgs, NewReminder} = bt_message_coder:decode_message(<<Reminder/binary, Bin/binary>>),
+  [handle_bt_message(Msg,State) || Msg <-Msgs],
+  inet:setopts(State#state.socket, [{active, once}]),
+  {noreply, State#state{reminder = NewReminder}};
 handle_info(Info, State) ->
-  error_logger:info_msg("Got info ~p~n",[Info]),
-  inet:setopts(State#state.socket,[{active,once}]),
+  error_logger:info_msg("Got info ~p~n", [Info]),
+  inet:setopts(State#state.socket, [{active, once}]),
   {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -147,3 +154,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+handle_bt_message(#{type := bitfield},#state{socket = Socket}) ->
+  error_logger:info_msg("Got bitfield, sending interested~n",[]),
+  gen_tcp:send(Socket, bt_message_coder:encode_message(#{type => interested}));
+handle_bt_message(#{type := unchoke},#state{socket = Socket}) ->
+  error_logger:info_msg("Got unchoke, sending request~n",[]),
+  gen_tcp:send(Socket, bt_message_coder:encode_message(#{type => request,index => 0 , start => 0, length => 16384}));
+handle_bt_message(Msg,_) ->
+  error_logger:info_msg("Other message ~p~n",[Msg]).
