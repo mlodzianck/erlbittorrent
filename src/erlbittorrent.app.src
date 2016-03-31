@@ -1,0 +1,19 @@
+%%%-------------------------------------------------------------------
+%%% @author maciejtokarski
+%%% @copyright (C) 2016, <COMPANY>
+%%% @doc
+%%%
+%%% @end
+%%% Created : 30. mar 2016 20:23
+%%%-------------------------------------------------------------------
+{application, erlbittorrent, [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+    kernel,
+    stdlib
+  ]},
+  {mod, {erlbittorrent, [bencoder]}},
+  {env, []}
+]}.
